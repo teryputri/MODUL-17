@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Storage;
 use App\Models\Employee;
 use App\Models\Position;
+
 
 class EmployeeController extends Controller
 {
@@ -14,18 +16,17 @@ class EmployeeController extends Controller
      * Display a listing of the resource.
      */
     public function index()
-    {
-        $pageTitle = 'Employee List';
+{
+    $pageTitle = 'Employee List';
 
-        // ELOQUENT
-        $employees = Employee::all();
+    // ELOQUENT
+    $employees = Employee::all();
 
-        return view('employee.index', [
-            'pageTitle' => $pageTitle,
-            'employees' => $employees
-        ]);
-    }
-
+    return view('employee.index', [
+        'pageTitle' => $pageTitle,
+        'employees' => $employees
+    ]);
+}
     /**
      * Show the form for creating a new resource.
      */
@@ -58,13 +59,30 @@ class EmployeeController extends Controller
             return redirect()->back()->withErrors($validator)->withInput();
         }
 
+        // Get File
+        $file = $request->file('cv');
+
+        if ($file != null) {
+            $originalFilename = $file->getClientOriginalName();
+            $encryptedFilename = $file->hashName();
+
+            // Store File
+            $file->store('public/files');
+        }
+
         // ELOQUENT
-        $employee = new Employee;
+        $employee = New Employee;
         $employee->firstname = $request->firstName;
         $employee->lastname = $request->lastName;
         $employee->email = $request->email;
         $employee->age = $request->age;
         $employee->position_id = $request->position;
+
+        if ($file != null) {
+            $employee->original_filename = $originalFilename;
+            $employee->encrypted_filename = $encryptedFilename;
+        }
+
         $employee->save();
 
         return redirect()->route('employees.index');
@@ -73,36 +91,35 @@ class EmployeeController extends Controller
      * Display the specified resource.
      */
 
-    public function show(string $id)
-    {
-        $pageTitle = 'Employee Detail';
+     public function show(string $id)
+     {
+         $pageTitle = 'Employee Detail';
 
-        // ELOQUENT
-        $employee = Employee::find($id);
+         // ELOQUENT
+         $employee = Employee::find($id);
 
-        return view('employee.show', compact('pageTitle', 'employee'));
-    }
-
+         return view('employee.show', compact('pageTitle', 'employee'));
+     }
     /**
      * Show the form for editing the specified resource.
      */
     public function edit(string $id)
-    {
-        $pageTitle = 'Edit Employee';
+{
+    $pageTitle = 'Edit Employee';
 
-        // ELOQUENT
-        $positions = Position::all();
-        $employee = Employee::find($id);
+    // ELOQUENT
+    $positions = Position::all();
+    $employee = Employee::find($id);
 
-        return view('employee.edit', compact('pageTitle', 'positions', 'employee'));
-    }
+    return view('employee.edit', compact('pageTitle', 'positions', 'employee'));
+}
 
     public function update(Request $request, string $id)
     {
         $messages = [
             'required' => ':Attribute harus diisi.',
-            'email' => 'Isi :attribute dengan format yang benar',
-            'numeric' => 'Isi :attribute dengan angka'
+            'email' => 'Isi :attribute dengan format yang benar.',
+            'numeric' => 'Isi :attribute dengan angka.'
         ];
 
         $validator = Validator::make($request->all(), [
@@ -123,20 +140,64 @@ class EmployeeController extends Controller
         $employee->email = $request->email;
         $employee->age = $request->age;
         $employee->position_id = $request->position;
+
+        // Proses File CV Baru
+        $file = $request->file('cv');
+
+        if ($file) {
+            // Hapus file CV lama jika ada
+            if ($employee->encrypted_filename) {
+                $oldFile = 'public/files/' . $employee->encrypted_filename;
+                if (Storage::exists($oldFile)) {
+                    Storage::delete($oldFile);
+                }
+            }
+
+            // Simpan file CV baru
+            $originalFilename = $file->getClientOriginalName();
+            $encryptedFilename = $file->hashName();
+
+            $file->store('public/files');
+
+            $employee->original_filename = $originalFilename;
+            $employee->encrypted_filename = $encryptedFilename;
+        }
+
         $employee->save();
 
         return redirect()->route('employees.index');
     }
-
     /**
      * Remove the specified resource from storage.
      */
-
-    public function destroy(string $id)
+        public function destroy(string $id)
     {
-        // ELOQUENT
-        Employee::find($id)->delete();
+        // Temukan employee berdasarkan ID
+        $employee = Employee::findOrFail($id);
+
+        // Hapus file CV jika ada
+        if ($employee->encrypted_filename) {
+            $filePath = 'public/files/' . $employee->encrypted_filename;
+            if (Storage::exists($filePath)) {
+                Storage::delete($filePath);
+            }
+        }
+
+        // Hapus data employee dari database
+        $employee->delete();
 
         return redirect()->route('employees.index');
+
+    }
+
+    public function downloadFile($employeeId)
+    {
+        $employee = Employee::find($employeeId);
+        $encryptedFilename = 'public/files/'.$employee->encrypted_filename;
+        $downloadFilename = Str::lower($employee->firstname.'_'.$employee->lastname.'_cv.pdf');
+
+        if(Storage::exists($encryptedFilename)) {
+            return Storage::download($encryptedFilename, $downloadFilename);
+        }
     }
 }
